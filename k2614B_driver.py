@@ -4,19 +4,18 @@ Module for interacting with the Keithley 2636B SMU.
 Author:  Ross <peregrine dot warren at physics dot ox dot ac dot uk>
 """
 
-import visa
+import pyvisa as visa
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.style as style
-import time
-from serial import SerialException
+from textwrap import dedent
+from os import remove
 
 
 class k2614B():
     """Class for Keithley control."""
 
-    def __init__(self, address='ASRL/dev/ttyUSB0', read_term='\n',
-                 baudrate=57600):
+    def __init__(self, address, read_term=None, baudrate=None):
         """Make instrument connection instantly on calling class."""
         rm = visa.ResourceManager('@py')  # use py-visa backend
         self.makeConnection(rm, address, read_term, baudrate)
@@ -24,17 +23,14 @@ class k2614B():
     def makeConnection(self, rm, address, read_term, baudrate):
         """Make initial connection to instrument."""
         try:
-            if 'ttyS' or 'ttyUSB' in str(address):
-                # Connection via SERIAL
-                self.inst = rm.open_resource(address)
-                self.inst.read_termination = str(read_term)
-                self.inst.baud_rate = baudrate
+            # Connection via LAN (tested on windows)
+            # address='TCPIP::192.168.0.2::5025:SOCKET'
+            #print(f'Connecting via ethernet: "{address}"')
+            self.inst = rm.open_resource(address)
+            #self.inst.read_termination = str(read_term)
+            #print(self.inst.query('*IDN?'))
 
-            if 'GPIB' in str(address):
-                # Connection via GPIB
-                print('No GPIB support. Please use serial')
-
-        except SerialException:
+        except IOError:
             print("CONNECTION ERROR: Check instrument address.")
             raise ConnectionError
 
@@ -67,18 +63,18 @@ class k2614B():
         try:
             r = self.inst.query(s)
             return r
-        except SerialException:
-            return ('Serial port busy, try again.')
+        
         except FileNotFoundError:
             return ('CONNECTION ERROR: No connection established.')
         except AttributeError:
             print('CONNECTION ERROR: No connection established.')
             return ('CONNECTION ERROR: No connection established.')
+    
 
     def loadTSP(self, tsp):
         """Load an anonymous TSP script into the k2614B nonvolatile memory."""
         try:
-            tsp_dir = 'TSP-scripts/'  # Put all tsp scripts in this folder
+            tsp_dir = './'  # Put all tsp scripts in this folder
             self._write('loadscript')
             line_count = 1
             for line in open(str(tsp_dir + tsp), mode='r'):
@@ -97,49 +93,17 @@ class k2614B():
         self._write('script.anonymous.run()')
         print('Measurement in progress...')
 
-    def readBuffer(self):
-        """Read buffer in memory and return an array."""
-        try:
-            vg = [float(x) for x in self._query('printbuffer' +
-                  '(1, smub.nvbuffer1.n, smub.nvbuffer1.sourcevalues)').split(',')]
-            ig = [float(x) for x in self._query('printbuffer' +
-                  '(1, smub.nvbuffer1.n, smub.nvbuffer1.readings)').split(',')]
-            vd = [float(x) for x in self._query('printbuffer' +
-                  '(1, smua.nvbuffer1.n, smua.nvbuffer1.sourcevalues)').split(',')]
-            c = [float(x) for x in self._query('printbuffer' +
-                 '(1, smua.nvbuffer1.n, smua.nvbuffer1.readings)').split(',')]
-
-            df = pd.DataFrame({'Gate Voltage [V]': vg,
-                               'Channel Voltage [V]': vd,
-                               'Channel Current [A]': c,
-                               'Gate Leakage [A]': ig})
-            return df
-
-        except SerialException:
-            print('Cannot read buffer.')
-            return
 
     def readBufferIV(self):
-        """Read specified buffer in keithley memory and return an array."""
+        """Read specified buffer in keithley memory and return an array."""        
         vd = [float(x) for x in self._query('printbuffer' +
               '(1, smua.nvbuffer1.n, smua.nvbuffer1.sourcevalues)').split(',')]
         c = [float(x) for x in self._query('printbuffer' +
              '(1, smua.nvbuffer1.n, smua.nvbuffer1.readings)').split(',')]
         df = pd.DataFrame({'Channel Voltage [V]': vd, 'Channel Current [A]': c})
         return df
-    
-    def readBufferInverter(self):
-        """Read specified buffer for inverter measurement."""
-        SMUAsrc = [float(x) for x in self._query('printbuffer' +
-              '(1, smua.nvbuffer1.n, smua.nvbuffer1.sourcevalues)').split(',')]
-        SMUAread = [float(x) for x in self._query('printbuffer' +
-             '(1, smua.nvbuffer1.n, smua.nvbuffer1.readings)').split(',')]
-        SMUBsrc = [float(x) for x in self._query('printbuffer' +
-             '(1, smub.nvbuffer1.n, smub.nvbuffer1.sourcevalues)').split(',')]
-        SMUBread = [float(x) for x in self._query('printbuffer' +
-             '(1, smub.nvbuffer1.n, smub.nvbuffer1.readings)').split(',')]        
-        df = pd.DataFrame({'Voltage In [V]': SMUAread, 'Voltage Out [V]': SMUBread, 'SMUA source': SMUAsrc, 'SMUB source': SMUBsrc})
-        return df    
+
+            
 
     def DisplayMeasurement(self, sample):
         """Show graphs of measurements."""
@@ -184,94 +148,107 @@ class k2614B():
         except(FileNotFoundError):
             print('Sample name not found.')
 
-    def IVsweep(self, sample):
+    def IVsweep(self, sample, vstart, vstop, vstep, stepTime):
         """k2614B IV sweep."""
-        try:
-            begin_time = time.time()
-            self.loadTSP('iv-sweep.tsp')
-            self.runTSP()
-            df = self.readBufferIV()
-            output_name = str(sample + '-iv-sweep.csv')
-            df.to_csv(output_name, sep='\t', index=False)
-            finish_time = time.time()
-            print('IV sweep complete. Elapsed time %.2f mins.'
-                  % ((finish_time - begin_time)/60))
+        # Write a tsp file
+        tspScript = f"""
+        -- TSP PROGRAM FOR PERFORMING IV SWEEP
+        reset()
+        display.clear()
+        
+        -- Beep in excitement
+        -- beeper.beep(1, 600)
+        
+        -- Clear buffers
+        smua.nvbuffer1.clear()
+        smub.nvbuffer1.clear()
+        -- Prepare buffers
+        smua.nvbuffer1.collectsourcevalues = 1
+        smub.nvbuffer1.collectsourcevalues = 1
+        format.data = format.ASCII
+        smua.nvbuffer1.appendmode = 1
+        smub.nvbuffer1.appendmode = 1
+        smua.measure.count = 1
+        smub.measure.count = 1
+        -- Set Paramters
+        Vstart = {vstart}
+        Vend = {vstop}
+        Vstep = {vstep}
+        -- Measurement Setup
+        -- To adjust the delay factor.
+        smua.measure.delayfactor = 1
+        smua.measure.nplc = 10
+        -- SMUA setup
+        smua.source.func = smua.OUTPUT_DCVOLTS
+        smua.sense = smua.SENSE_LOCAL
+        smua.source.autorangev = smua.AUTORANGE_ON
+        smua.source.limiti = 1e-5
+        smua.measure.rangei = 1e-5
+        
+        --DISPLAY settings
+        display.smua.measure.func = display.MEASURE_DCAMPS
+        display.screen = display.SMUA
+        
+        -- Measurement routine
+        V = Vstart
+        smua.source.output = smua.OUTPUT_ON
+        smua.source.levelv = V
+        delay(1)
+        
+        -- forwards scan direction
+        if Vstart < Vend then
+            while V <= Vend do
+                    smua.source.levelv = V
+                    smua.source.output = smua.OUTPUT_ON
+                    delay({stepTime})
+                    smua.measure.i(smua.nvbuffer1)
+                    V = V + Vstep
+                    smua.source.output = smua.OUTPUT_OFF
+            end
+        
+        -- reverse scan direction
+        elseif Vstart > Vend then
+            while V >= Vend do
+                    smua.source.levelv = V
+                    smua.source.output = smua.OUTPUT_ON
+                    delay({stepTime})
+                    smua.measure.i(smua.nvbuffer1)
+                    V = V - Vstep
+                    smua.source.output = smua.OUTPUT_OFF
+            end
+        
+        else
+            error("Invalid sweep parameters.")
+        end
+        
+        waitcomplete()
+        -------- END --------
+        """
+        
+        # Write this to a file before uploading to Keithley:
+        with open('iv-temp.tsp','w') as myfile:
+            myfile.write(dedent(tspScript))
+        
+        # Now run the script
+        self.loadTSP('iv-temp.tsp')
+        self.runTSP()
+        
+        # clean up temp .tsp file
+        remove('iv-temp.tsp')
+        return
+        
 
-        except(AttributeError):
-            print('Cannot perform IV sweep: no keithley connected.')
 
-    def Output(self, sample):
-        """k2614B Output sweeps."""
-        try:
-            begin_time = time.time()
-            self.loadTSP('output-charact.tsp')
-            self.runTSP()
-            df = self.readBuffer()
-            output_name = str(sample + '-output.csv')
-            df.to_csv(output_name, sep='\t', index=False)
-            finish_time = time.time()
-            print('Output sweeps complete. Elapsed time %.2f mins.'
-                  % ((finish_time - begin_time) / 60))
 
-        except(AttributeError):
-            print('Cannot perform output sweep: no keithley connected.')
-
-    def Transfer(self, sample):
-        """k2614B Transfer sweeps."""
-        try:
-            begin_time = time.time()
-            self.loadTSP('transfer-charact.tsp')
-            self.runTSP()
-            df = self.readBuffer()
-            output_name = str(sample + '-neg-pos-transfer.csv')
-            df.to_csv(output_name, sep='\t', index=False)
-
-            # transfer reverse scan
-            self.loadTSP('transfer-charact-2.tsp')
-            self.runTSP()
-            df = self.readBuffer()
-            output_name = str(sample + '-pos-neg-transfer.csv')
-            df.to_csv(output_name, sep='\t', index=False)
-
-            finish_time = time.time()
-            print('Transfer curves measured. Elapsed time %.2f mins.'
-                  % ((finish_time - begin_time) / 60))
-
-        except(AttributeError):
-            print('Cannot perform transfer sweep: no keithley connected.')
-
-    def Inverter(self, sample):
-        """k2614B inverter measurement."""
-        try:
-            begin_time = time.time()
-            self.loadTSP('inverter.tsp')
-            self.runTSP()
-            df = self.readBufferInverter()
-            output_name = str(sample + '-neg-pos-inverter.csv')
-            df.to_csv(output_name, sep='\t', index=False)
-            
-            # inverter reverse scan
-            self.loadTSP('inverter-reverse.tsp')
-            self.runTSP()
-            df = self.readBufferInverter()
-            output_name = str(sample + '-pos-neg-inverter.csv')
-            df.to_csv(output_name, sep='\t', index=False)            
-            
-            finish_time = time.time()
-            print('Inverter measurement complete. Elapsed time %.2f mins.'
-                  % ((finish_time - begin_time) / 60))
-
-        except(AttributeError):
-            print('Cannot perform output sweep: no keithley connected.')
 ########################################################################
 
 
 if __name__ == '__main__':
     """For testing methods in the k2614B class."""
-    keithley = k2614B(address='ASRL/dev/ttyUSB0', read_term='\n', baudrate=57600)
+    keithley = k2614B(address='TCPIP[board]::192.168.0.2::inst0::INSTR')
     sample = 'blank-20-1'
-    keithley.IVsweep(sample)
-    # keithley.Output(sample)
-    # keithley.Transfer(sample)
-    # keithley.DisplayMeasurement(sample)
+    keithley.IVsweep(sample, -10, 10, 2, 0.1)
+    #time.sleep(20)
+    #df = keithley.readBufferIV()
+    #print(df)
     keithley.closeConnection()

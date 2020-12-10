@@ -39,7 +39,6 @@ class mainWindow(QMainWindow):
         self.setCentralWidget(self.mainWidget)
 
         # Add other window widgets
-        self.keithleySettingsWindow = keithleySettingsWindow()
         self.keithleyConnectionWindow = keithleyConnectionWindow()
         self.keithleyErrorWindow = keithleyErrorWindow()
         self.popupWarning = warningWindow()
@@ -47,9 +46,9 @@ class mainWindow(QMainWindow):
         # Dock setup
         # Keithley dock widget
         self.buttonWidget = keithleyButtonWidget()
-        self.dockWidget1 = QDockWidget('Keithley Control')
+        self.dockWidget1 = QDockWidget('IV control')
         self.dockWidget1.setWidget(self.buttonWidget)
-        self.addDockWidget(Qt.BottomDockWidgetArea, self.dockWidget1)
+        self.addDockWidget(Qt.TopDockWidgetArea, self.dockWidget1)
 
         # Matplotlib control widget
         self.dockWidget2 = QDockWidget('Plotting controls')
@@ -67,12 +66,7 @@ class mainWindow(QMainWindow):
         loadAction.setShortcut('Ctrl+L')
         loadAction.setStatusTip('Load data to be displayed')
         loadAction.triggered.connect(self.showFileOpen)
-        # Load old ALL data
-        loadALLAction = QAction('&Load ALL', self)
-        loadALLAction.setShortcut('Ctrl+A')
-        loadALLAction.setStatusTip(
-            'Load iv, output and transfer data to be displayed')
-        loadALLAction.triggered.connect(self.showFileOpenALL)
+
         # Clear data
         clearAction = QAction('Clear', self)
         clearAction.setShortcut('Ctrl+C')
@@ -85,7 +79,6 @@ class mainWindow(QMainWindow):
         keithleyConAction = QAction('Connect', self)
         keithleyConAction.setShortcut('Ctrl+J')
         keithleyConAction.setStatusTip('Reconnect to keithley 2636')
-        keithleyAction.triggered.connect(self.keithleySettingsWindow.show)
         keithleyConAction.triggered.connect(self.keithleyConnectionWindow.show)
         keithleyError = QAction('Error Log', self)
         keithleyError.setShortcut('Ctrl+E')
@@ -95,7 +88,6 @@ class mainWindow(QMainWindow):
         menubar = self.menuBar()
         fileMenu = menubar.addMenu('&File')
         fileMenu.addAction(loadAction)
-        fileMenu.addAction(loadALLAction)
         fileMenu.addAction(clearAction)
         fileMenu.addSeparator()
         fileMenu.addAction(exitAction)
@@ -121,8 +113,7 @@ class mainWindow(QMainWindow):
     def testKeithleyConnection(self):
         """Connect to the keithley on initialisation."""
         try:
-                self.keithley = k2614B_driver.k2614B(address='ASRL/dev/ttyUSB0',
-                                            read_term='\n', baudrate=57600)
+                self.keithley = k2614B_driver.k2614B(address='TCPIP[board]::192.168.0.2::inst0::INSTR')
                 self.statusbar.showMessage('Keithley found.')
                 self.buttonWidget.showButtons()
                 self.keithley.closeConnection()
@@ -140,44 +131,14 @@ class mainWindow(QMainWindow):
     def showFileOpen(self):
             """Pop up for file selection."""
             filt1 = '*.csv'
-            fname = QFileDialog.getOpenFileName(self, 'Open file', filter=filt1)
+            fname = QFileDialog.getOpenFileName(self, 'Open file', filter=filt1, directory='data')
             if fname[0]:
                 try:
-                    df = pd.read_csv(fname[0], '\t')
-                    if fnmatch.fnmatch(fname[0], '*iv-sweep.csv'):
-                        self.mainWidget.drawIV(df)
-                    elif fnmatch.fnmatch(fname[0], '*output.csv'):
-                        self.mainWidget.drawOutput(df)
-                    elif fnmatch.fnmatch(fname[0], '*transfer.csv'):
-                        self.mainWidget.drawTransfer(df)
-                    elif fnmatch.fnmatch(fname[0], '*gate-leakage.csv'):
-                        self.mainWidget.drawLeakage(df)
-                    elif fnmatch.fnmatch(fname[0], '*inverter.csv'):
-                        self.mainWidget.drawInverter(df)
+                    df = pd.read_csv(fname[0], ',')
+                    if fnmatch.fnmatch(fname[0], '*iv.csv'):
+                        self.mainWidget.drawIV(df, fname[0].split('/')[-1].split('.')[0])
                     else:
                         raise FileNotFoundError
-                except KeyError or FileNotFoundError:
-                    self.popupWarning.showWindow('Unsupported file.')
-
-    def showFileOpenALL(self):
-            """Pop up for file selection for ALL measurements."""
-            filt1 = '*.csv'
-            fname = QFileDialog.getOpenFileName(self, 'Open file', filter=filt1)
-            if fname[0]:
-                try:
-                    fileN = fname[0]
-                    if fnmatch.fnmatch(fname[0], '*iv-sweep.csv'):
-                        fileN = fileN[:-13]
-                    elif fnmatch.fnmatch(fname[0], '*output.csv'):
-                        fileN = fileN[:-11]
-                    elif fnmatch.fnmatch(fname[0], '*transfer.csv'):
-                        fileN = fileN[:-21]
-                    elif fnmatch.fnmatch(fname[0], '*gate-leakage.csv'):
-                        fileN = fileN[:-17]
-                    elif fnmatch.fnmatch(fname[0], '*inverter.csv'):
-                        fileN = fileN[:-13]
-                    self.mainWidget.drawAll(fileN)
-
                 except KeyError or FileNotFoundError:
                     self.popupWarning.showWindow('Unsupported file.')
 
@@ -203,28 +164,60 @@ class keithleyButtonWidget(QWidget):
             # Set widget layout
             grid = QGridLayout()
             self.setLayout(grid)
+            
+            # Columns
+            col1 = QLabel('Start Voltage (V)')
+            col2 = QLabel('Stop Voltage (V)')
+            col3 = QLabel('Voltage Step (V)')
+            col4 = QLabel('Step Time (s)')
+            grid.addWidget(col1, 1, 2)
+            grid.addWidget(col2, 1, 3)
+            grid.addWidget(col3, 1, 4)
+            grid.addWidget(col4, 1, 5)
 
+            # Start voltage
+            ivFirstV = QDoubleSpinBox(self)
+            grid.addWidget(ivFirstV, 2, 2)
+            ivFirstV.setMinimum(-200)
+            ivFirstV.setMaximum(200)
+            ivFirstV.setValue(-5)
+            self.startV = -5
+            ivFirstV.valueChanged.connect(self.updateStartV)
+            
+            # Stop voltage
+            ivLastV = QDoubleSpinBox(self)
+            grid.addWidget(ivLastV, 2, 3)
+            ivLastV.setMinimum(-200)
+            ivLastV.setMaximum(200)
+            ivLastV.setValue(5)
+            self.stopV = 5
+            ivLastV.valueChanged.connect(self.updateStopV)
+            
+            # Voltage step
+            ivStepV = QDoubleSpinBox(self)
+            grid.addWidget(ivStepV, 2, 4)
+            ivStepV.setSingleStep(0.1)
+            ivStepV.setValue(0.1)
+            self.stepV = 0.1
+            ivStepV.valueChanged.connect(self.updateStepV)
+            
+            # Step time
+            ivStepT = QDoubleSpinBox(self)
+            grid.addWidget(ivStepT, 2, 5)
+            ivStepT.setSingleStep(0.1)
+            ivStepT.setValue(0.2)
+            self.stepT = 0.2
+            ivStepT.valueChanged.connect(self.updateStepT)            
+            
             # Push button setup
-            self.ivBtn = QPushButton('IV Sweep')
-            grid.addWidget(self.ivBtn, 1, 1)
+            self.ivBtn = QPushButton('Perform IV sweep')
+            grid.addWidget(self.ivBtn, 2, 6)
             self.ivBtn.clicked.connect(self.showSampleNameInput)
+            
+            # Read from buffer
+            self.readBuffer = QPushButton('Read buffer')
+            grid.addWidget(self.readBuffer, 2, 7)            
 
-            self.outputBtn = QPushButton('Output Sweep')
-            grid.addWidget(self.outputBtn, 1, 2)
-            self.outputBtn.clicked.connect(self.showSampleNameInput)
-
-            self.transferBtn = QPushButton('Transfer Sweep')
-            grid.addWidget(self.transferBtn, 1, 3)
-            self.transferBtn.clicked.connect(self.showSampleNameInput)
-
-            self.allBtn = QPushButton('ALL')
-            grid.addWidget(self.allBtn, 1, 4)
-            self.allBtn.clicked.connect(self.showSampleNameInput)
-
-            self.inverterBtn = QPushButton('Voltage Inverter')
-            grid.addWidget(self.inverterBtn, 2, 1)
-            self.inverterBtn.clicked.connect(self.inverterPopup)
-            self.inverterBtn.clicked.connect(self.showSampleNameInput)
 
         def showSampleNameInput(self):
             """Popup for sample name input."""
@@ -245,28 +238,30 @@ class keithleyButtonWidget(QWidget):
                 self.SampleName = None
                 self.cancelSignal.emit()  # doesnt link to anything yet
 
-        def inverterPopup(self):
-            """Popup for inverter setup change."""
-            inverterWarn = QMessageBox()
-            inverterWarn.setText('WARNING: Make sure correct wiring' +
-                                 ' for this measurement')
-            inverterWarn.exec()
 
         def hideButtons(self):
             """Hide control buttons."""
             self.ivBtn.setEnabled(False)
-            self.outputBtn.setEnabled(False)
-            self.transferBtn.setEnabled(False)
-            self.allBtn.setEnabled(False)
-            self.inverterBtn.setEnabled(False)
 
         def showButtons(self):
             """Show control buttons."""
             self.ivBtn.setEnabled(True)
-            self.outputBtn.setEnabled(True)
-            self.transferBtn.setEnabled(True)
-            self.allBtn.setEnabled(True)
-            self.inverterBtn.setEnabled(True)
+            
+        def updateStartV(self, startV):
+            """Set/update start voltage."""
+            self.startV = startV
+    
+        def updateStopV(self, stopV):
+            """Set/update start voltage."""
+            self.stopV = stopV    
+            
+        def updateStepV(self, stepV):
+            """Set/update start voltage."""
+            self.stepV = stepV    
+            
+        def updateStepT(self, stepT):
+            """Set/update start voltage."""
+            self.stepT = stepT              
 
 
 class mplWidget(FigureCanvas):
@@ -278,14 +273,13 @@ class mplWidget(FigureCanvas):
 
         def initWidget(self, parent=None, width=5, height=4, dpi=100):
             """Set parameters of plotting widget."""
-            style.use('ggplot')  # Looks the best?
+            style.use('seaborn-white')
 
             self.fig = Figure(figsize=(width, height), dpi=dpi)
             self.ax1 = self.fig.add_subplot(111)
 
-            self.ax1.set_title('IV Sweep')
-            self.ax1.set_xlabel('Channel Voltage [V]')
-            self.ax1.set_ylabel('Channel Current [A]')
+            self.ax1.set_xlabel('Voltage (V)', fontsize=12)
+            self.ax1.set_ylabel('Current (A)', fontsize=12)
 
             FigureCanvas.__init__(self, self.fig)
             self.setParent(parent)
@@ -293,207 +287,25 @@ class mplWidget(FigureCanvas):
                                        QSizePolicy.Expanding)
             FigureCanvas.updateGeometry(self)
 
-        def drawIV(self, df):
+        def drawIV(self, df, sname):
             """Take a data frame and draw it."""
             self.ax1 = self.fig.add_subplot(111)
             self.ax1.plot(df['Channel Voltage [V]'], df['Channel Current [A]'],
-                          '.')
-            self.ax1.set_title('IV Sweep')
-            self.ax1.set_xlabel('Channel Voltage [V]')
-            self.ax1.set_ylabel('Channel Current [A]')
+                          'o-', label=sname)
+            self.ax1.set_title('IV Sweep', fontsize=12)
+            self.ax1.set_xlabel('Voltage (V)', fontsize=12)
+            self.ax1.set_ylabel('Current (A)', fontsize=12)
+            self.ax1.legend(loc='best')
             FigureCanvas.draw(self)
 
-        def drawOutput(self, df):
-            """Take a data frame and draw it."""
-            self.ax1 = self.fig.add_subplot(111)
-            self.ax1.plot(df['Channel Voltage [V]'], df['Channel Current [A]'],
-                          '.')
-            self.ax1.set_title('Output curves')
-            self.ax1.set_xlabel('Channel Voltage [V]')
-            self.ax1.set_ylabel('Channel Current [A]')
-            FigureCanvas.draw(self)
-
-        def drawTransfer(self, df):
-            """Take a data frame and draw it."""
-            self.ax1 = self.fig.add_subplot(111)
-            self.ax1.semilogy(df['Gate Voltage [V]'],
-                              abs(df['Channel Current [A]']), '.')
-            self.ax1.set_title('Transfer Curve')
-            self.ax1.set_xlabel('Gate Voltage [V]')
-            self.ax1.set_ylabel('Channel Current [A]')
-            FigureCanvas.draw(self)
-
-        def drawLeakage(self, df):
-            """Take a data frame and draw it."""
-            self.ax1 = self.fig.add_subplot(111)
-            self.ax1.plot(df['Gate Voltage [V]'], df['Gate Leakage [A]'], '.')
-            self.ax1.set_title('Leakage from gate to drain')
-            self.ax1.set_xlabel('Gate Voltage [V]')
-            self.ax1.set_ylabel('Gate Leakage [A]')
-            FigureCanvas.draw(self)
-
-        def drawAll(self, sample):
-            """Take all sweeps and draw them."""
-            try:
-                df1 = pd.read_csv(str(sample + '-iv-sweep.csv'), '\t')
-                df2 = pd.read_csv(str(sample + '-output.csv'), '\t')
-                df3 = pd.read_csv(
-                    str(sample + '-neg-pos-transfer.csv'), '\t')
-                df4 = pd.read_csv(
-                    str(sample + '-pos-neg-transfer.csv'), '\t')
-            except FileNotFoundError:
-                # If it can't find some data, dont worry :)
-                pass
-
-            self.fig.clear()
-            self.ax1 = self.fig.add_subplot(221)
-            self.ax2 = self.fig.add_subplot(222)
-            self.ax3 = self.fig.add_subplot(223)
-            self.ax4 = self.fig.add_subplot(224)
-
-            try:
-                self.ax1.plot(df1['Channel Voltage [V]'],
-                              df1['Channel Current [A]'] / 1e-6, '.')
-                self.ax1.set_title('I-V sweep')
-                self.ax1.set_xlabel('Channel Voltage [V]')
-                self.ax1.set_ylabel('Channel Current [$\mu$A]')
-
-                self.ax2.plot(df2['Channel Voltage [V]'],
-                              df2['Channel Current [A]'] / 1e-6, '.')
-                self.ax2.set_title('Output curves')
-                self.ax2.set_xlabel('Channel Voltage [V]')
-                self.ax2.set_ylabel('Channel Current [$\mu$A]')
-
-                self.ax3.semilogy(df3['Gate Voltage [V]'],
-                              abs(df3['Channel Current [A]']), '.')
-                self.ax3.set_title('Transfer Curves')
-                self.ax3.set_xlabel('Gate Voltage [V]')
-                self.ax3.set_ylabel('Channel Current [A]')
-
-                self.ax3.semilogy(df4['Gate Voltage [V]'],
-                              abs(df4['Channel Current [A]']), '.')
-                self.ax3.set_title('Transfer Curves')
-                self.ax3.set_xlabel('Gate Voltage [V]')
-                self.ax3.set_ylabel('Channel Current [A]')
-
-                self.ax4.plot(df3['Gate Voltage [V]'],
-                              df3['Gate Leakage [A]'] / 1e-9, '.')
-                self.ax4.set_title('Gate leakage current')
-                self.ax4.set_xlabel('Gate Voltage [V]')
-                self.ax4.set_ylabel('Gate Leakage [nA]')
-            except UnboundLocalError:
-                pass  # if data isnt there, it cant be plotted
-            
-
-            self.fig.tight_layout()
-            FigureCanvas.draw(self)
-
-        def drawInverter(self, df):
-            """Take a data frame and draw it."""
-            self.ax1 = self.fig.add_subplot(111)
-            self.ax1.plot(df['Voltage In [V]'], df['Voltage Out [V]'],
-                          '.')
-            self.ax1.set_title('Inverter')
-            self.ax1.set_xlabel('Voltage In [V]')
-            self.ax1.set_ylabel('Voltage Out [V]')
-            self.fig.tight_layout()
-            FigureCanvas.draw(self)
-
+      
         def clear(self):
             """Clear the plot."""
-            self.fig.clear()
+            self.ax1.clear()
+            self.ax1.set_xlabel('Voltage (V)', fontsize=12)
+            self.ax1.set_ylabel('Current (A)', fontsize=12)            
             FigureCanvas.draw(self)
 
-
-class keithleySettingsWindow(QWidget):
-        """Keithley settings popup."""
-
-        def __init__(self):
-            """Initialise setup."""
-            super().__init__()
-            self.initWidget()
-
-        def initWidget(self):
-            """Initialise connections."""
-            # Set widget layout
-            grid = QGridLayout()
-            self.setLayout(grid)
-            # Columns
-            col1 = QLabel('Initial Voltage')
-            col2 = QLabel('Final Voltage')
-            col3 = QLabel('Voltage Step')
-            col4 = QLabel('Step Time')
-            grid.addWidget(col1, 1, 2)
-            grid.addWidget(col2, 1, 3)
-            grid.addWidget(col3, 1, 4)
-            grid.addWidget(col4, 1, 5)
-            # Rows
-            row1 = QLabel('IV')
-            row2 = QLabel('Ouput')
-            row3 = QLabel('Transfer')
-            grid.addWidget(row1, 2, 1)
-            grid.addWidget(row2, 3, 1)
-            grid.addWidget(row3, 4, 1)
-
-            # IV Settings
-            ivFirstV = QDoubleSpinBox(self)
-            grid.addWidget(ivFirstV, 2, 2)
-            ivFirstV.setMinimum(-100)
-            ivFirstV.setValue(-5)
-            ivLastV = QDoubleSpinBox(self)
-            grid.addWidget(ivLastV, 2, 3)
-            ivLastV.setValue(5)
-            ivStepV = QDoubleSpinBox(self)
-            grid.addWidget(ivStepV, 2, 4)
-            ivStepV.setValue(0.1)
-            ivStepT = QDoubleSpinBox(self)
-            grid.addWidget(ivStepT, 2, 5)
-            ivStepT.setValue(0.2)
-
-            # Ouptut curve Settings
-            outputFirstV = QDoubleSpinBox(self)
-            grid.addWidget(outputFirstV, 3, 2)
-            outputLastV = QDoubleSpinBox(self)
-            grid.addWidget(outputLastV, 3, 3)
-            outputStepV = QDoubleSpinBox(self)
-            grid.addWidget(outputStepV, 3, 4)
-            outputStepT = QDoubleSpinBox(self)
-            grid.addWidget(outputStepT, 3, 5)
-
-            # transfer Settings
-            transferFirstV = QDoubleSpinBox(self)
-            grid.addWidget(transferFirstV, 4, 2)
-            transferLastV = QDoubleSpinBox(self)
-            grid.addWidget(transferLastV, 4, 3)
-            transferStepV = QDoubleSpinBox(self)
-            grid.addWidget(transferStepV, 4, 4)
-            transferStepT = QDoubleSpinBox(self)
-            grid.addWidget(transferStepT, 4, 5)
-            
-            # OK button
-            setSettings = QPushButton('Ok')
-            grid.addWidget(setSettings, 5, 4)
-            setSettings.clicked.connect(self.setIVparams)
-            
-            # Cancel button
-            cancelSet = QPushButton('Cancel')
-            grid.addWidget(cancelSet, 5, 5)
-            cancelSet.clicked.connect(self.close)
-            
-            # Window setup
-            self.centre()
-            self.setWindowTitle('k2614B - Settings')
-
-        def centre(self):
-            """Find screen size and place in centre."""
-            screen = QDesktopWidget().screenGeometry()
-            size = self.geometry()
-            self.move((screen.width()-size.width())/2,
-                      (screen.height()-size.height())/2)
-
-        def setIVparams(self):
-            """Store IV sweep settings in .tsp file."""
-            print('You are here')
 
 class keithleyConnectionWindow(QWidget):
         """Popup for connecting to instrument."""
@@ -533,7 +345,7 @@ class keithleyConnectionWindow(QWidget):
         def reconnect2keithley(self):
             """Reconnect to instrument."""
             try:
-                self.keithley = k2614B_driver.k2614B(address='ASRL/dev/ttyUSB0',
+                self.keithley = k2614B_driver.k2614B(address='TCPIP[board]::192.168.0.2::inst0::INSTR',
                                             read_term='\n', baudrate=57600)
                 self.connStatus.append('Connection successful')
                 self.connectionSig.emit()
@@ -578,7 +390,7 @@ class keithleyErrorWindow(QWidget):
 
         def readError(self):
             """Reconnect to instrument."""
-            self.keithley = k2614B_driver.k2614B(address='ASRL/dev/ttyUSB0',
+            self.keithley = k2614B_driver.k2614B(address='TCPIP[board]::192.168.0.2::inst0::INSTR',
                                         read_term='\n', baudrate=57600)
 
             self.keithley._write('errorCode, message, severity, errorNode' +
