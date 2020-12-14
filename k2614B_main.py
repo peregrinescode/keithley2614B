@@ -35,57 +35,64 @@ class GUI(program_GUI.mainWindow):
         try:
             if self.buttonWidget.SampleName is None:
                 raise AttributeError
-            self.params['Sample name'] = self.buttonWidget.SampleName
-            self.params['startV'] = self.buttonWidget.startV
-            self.params['stopV'] = self.buttonWidget.stopV
-            self.params['stepV'] = self.buttonWidget.stepV
-            self.params['stepT'] = self.buttonWidget.stepT
-            self.statusbar.showMessage('Performing IV Sweep...')
+            self.params["Sample name"] = self.buttonWidget.SampleName
+            self.params["startV"] = self.buttonWidget.startV
+            self.params["stopV"] = self.buttonWidget.stopV
+            self.params["stepV"] = self.buttonWidget.stepV
+            self.params["stepT"] = self.buttonWidget.stepT
+            self.params["repeats"] = self.buttonWidget.ivRepeats
+            self.statusbar.showMessage("Performing IV Sweep...")
             self.buttonWidget.hideButtons()
-            self.params['Measurement'] = 'iv-sweep'
+            self.params["Measurement"] = "iv-sweep"
             self.measureThread = measureThread(self.params)
             self.measureThread.finishedSig.connect(self.done)
             self.measureThread.start()
         except AttributeError or KeyError:
-            self.popupWarning.showWindow('No sample name given!')
-            
+            self.popupWarning.showWindow("No sample name given!")
+
     def readBuffer(self):
-        '''Read from the buffer.'''
-        self.statusbar.showMessage('Attempting to read buffer...')
+        """Read from the buffer."""
+        self.statusbar.showMessage("Attempting to read buffer...")
         self.bufferThread = bufferThread(self.params)
         self.bufferThread.finishedSig.connect(self.bufferDone)
         self.bufferThread.start()
 
-
     def done(self):
         """Update display when finished measurement."""
-        self.statusbar.showMessage('Task complete.')
-        #self.dislpayMeasurement()
+        self.statusbar.showMessage("Task complete.")
+        # self.dislpayMeasurement()
         self.buttonWidget.showButtons()
-        
+
     def bufferDone(self):
         """Update display when finished buffer reading."""
-        saveFile = 'data/' + str(self.params['Sample name']) + '-iv.csv'
-        self.statusbar.showMessage(f'Buffer saved as {saveFile}')
-        #self.dislpayMeasurement()   
+        saveFile = "data/" + str(self.params["Sample name"]) + "-iv.csv"
+        self.statusbar.showMessage(f"Buffer saved as {saveFile}")
+        # self.dislpayMeasurement()
 
     def error(self, message):
         """Raise error warning."""
         self.popupWarning.showWindow(str(message))
-        self.statusbar.showMessage('Measurement error!')
+        self.statusbar.showMessage("Measurement error!")
         self.buttonWidget.hideButtons()
 
     def dislpayMeasurement(self):
         """Display the data on screen."""
         try:
             # IV sweep display
-            if self.params['Measurement'] == 'iv-sweep':
-                df = pd.read_csv(str(self.params['Sample name'] + '-' +
-                                 self.params['Measurement'] + '.csv'), '\t')
+            if self.params["Measurement"] == "iv-sweep":
+                df = pd.read_csv(
+                    str(
+                        self.params["Sample name"]
+                        + "-"
+                        + self.params["Measurement"]
+                        + ".csv"
+                    ),
+                    "\t",
+                )
                 self.mainWidget.drawIV(df)
 
         except FileNotFoundError:
-            self.popupWarning.showWindow('Could not find data!')
+            self.popupWarning.showWindow("Could not find data!")
 
 
 class measureThread(QThread):
@@ -106,18 +113,28 @@ class measureThread(QThread):
     def run(self):
         """Logic to be run in background thread."""
         try:
-            keithley = k2614B_driver.k2614B(address='TCPIP[board]::192.168.0.2::inst0::INSTR')
+            keithley = k2614B_driver.k2614B(
+                address="TCPIP[board]::192.168.0.2::inst0::INSTR"
+            )
 
-            if self.params['Measurement'] == 'iv-sweep':
-                keithley.IVsweep(self.params['Sample name'], self.params['startV'], self.params['stopV'], self.params['stepV'], self.params['stepT'])
+            if self.params["Measurement"] == "iv-sweep":
+                keithley.IVsweep(
+                    self.params["Sample name"],
+                    self.params["startV"],
+                    self.params["stopV"],
+                    self.params["stepV"],
+                    self.params["stepT"],
+                    self.params["repeats"]
+                )
 
             keithley.closeConnection()
             self.finishedSig.emit()
 
         except ConnectionError:
-            self.errorSig.emit('No measurement made. Please retry.')
+            self.errorSig.emit("No measurement made. Please retry.")
             self.quit()
-            
+
+
 class bufferThread(QThread):
     """Thread for running measurements."""
 
@@ -136,25 +153,28 @@ class bufferThread(QThread):
     def run(self):
         """Logic to be run in background thread."""
         try:
-            keithley = k2614B_driver.k2614B(address='TCPIP[board]::192.168.0.2::inst0::INSTR')
+            keithley = k2614B_driver.k2614B(
+                address="TCPIP[board]::192.168.0.2::inst0::INSTR"
+            )
 
             df = keithley.readBufferIV()
-            df.to_csv('data/' + str(self.params['Sample name']) + '-iv.csv', index=False)
+            df.to_csv(
+                "data/" + str(self.params["Sample name"]) + "-iv.csv", index=False
+            )
 
             keithley.closeConnection()
             self.finishedSig.emit()
 
         except ConnectionError:
-            self.errorSig.emit('No measurement made. Please retry.')
+            self.errorSig.emit("No measurement made. Please retry.")
             self.quit()
-            
+
         except KeyError:
-            self.errorSig.emit('No measurement made. Please retry.')
-            self.quit()            
-            
+            self.errorSig.emit("No measurement made. Please retry.")
+            self.quit()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app = QApplication(sys.argv)
     mainGUI = GUI()
     sys.exit(app.exec_())
