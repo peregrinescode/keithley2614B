@@ -133,9 +133,9 @@ class mainWindow(QMainWindow):
     def testKeithleyConnection(self):
         """Connect to the keithley on initialisation."""
         try:
-            self.keithley = k2614B_driver.k2614B(
-                address="TCPIP[board]::192.168.0.2::inst0::INSTR"
-            )
+            # address = "TCPIP[board]::192.168.0.2::inst0::INSTR"
+            address = "TCPIP[board]::169.254.0.2::inst0::INSTR"
+            self.keithley = k2614B_driver.k2614B(address)
             self.statusbar.showMessage("Keithley found.")
             self.buttonWidget.showButtons()
             self.keithley.closeConnection()
@@ -384,11 +384,9 @@ class keithleyConnectionWindow(QWidget):
     def reconnect2keithley(self):
         """Reconnect to instrument."""
         try:
-            self.keithley = k2614B_driver.k2614B(
-                address="TCPIP[board]::192.168.0.2::inst0::INSTR",
-                read_term="\n",
-                baudrate=57600,
-            )
+             # address = "TCPIP[board]::192.168.0.2::inst0::INSTR"
+            address = "TCPIP[board]::169.254.0.2::inst0::INSTR"
+            self.keithley = k2614B_driver.k2614B(address)
             self.connStatus.append("Connection successful")
             self.connectionSig.emit()
             self.keithley.closeConnection()
@@ -416,7 +414,6 @@ class analysisWindow(QWidget):
         # Connection status box
         self.connStatus = QTextEdit("Push button to connect to keithley...")
         self.connButton = QPushButton("Connect")
-        self.connButton.clicked.connect(self.reconnect2keithley)
         grid.addWidget(self.connStatus, 1, 1)
         grid.addWidget(self.connButton, 2, 1)
 
@@ -433,22 +430,7 @@ class analysisWindow(QWidget):
             (screen.width() - size.width()) / 2, (screen.height() - size.height()) / 2
         )
 
-    def reconnect2keithley(self):
-        """Reconnect to instrument."""
-        try:
-            self.keithley = k2614B_driver.k2614B(
-                address="TCPIP[board]::192.168.0.2::inst0::INSTR",
-                read_term="\n",
-                baudrate=57600,
-            )
-            self.connStatus.append("Connection successful")
-            self.connectionSig.emit()
-            self.keithley.closeConnection()
-
-        except ConnectionError:
-            self.connStatus.append("No Keithley can be found.")
-
-
+ 
 class keithleyErrorWindow(QWidget):
     """Popup for reading error messages."""
 

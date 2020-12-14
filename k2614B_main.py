@@ -14,6 +14,7 @@ import time
 import pandas as pd
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import QApplication
+from math import ceil
 
 
 class GUI(program_GUI.mainWindow):
@@ -113,11 +114,11 @@ class measureThread(QThread):
     def run(self):
         """Logic to be run in background thread."""
         try:
-            keithley = k2614B_driver.k2614B(
-                address="TCPIP[board]::192.168.0.2::inst0::INSTR"
-            )
+            # address = "TCPIP[board]::192.168.0.2::inst0::INSTR"
+            address = "TCPIP[board]::169.254.0.2::inst0::INSTR"
+            keithley = k2614B_driver.k2614B(address)
 
-            if self.params["Measurement"] == "iv-sweep":
+            if self.params["Measurement"] == "iv-sweep" and self.params["repeats"] == 0 :
                 keithley.IVsweep(
                     self.params["Sample name"],
                     self.params["startV"],
@@ -126,10 +127,35 @@ class measureThread(QThread):
                     self.params["stepT"],
                     self.params["repeats"]
                 )
+                # Calculate time to wait for scan to complete
+                vrange = abs(self.params["startV"]) + abs(self.params["stopV"])
+                num_points = vrange / self.params["stepV"]
+                measure_time = num_points * (self.params["stepT"] + 0.1) * 2
+    
+                print(f"Estimated time to finish: {ceil(measure_time / 60)} min(s)")
+                time.sleep(measure_time + 5)                
+
+            if self.params["Measurement"] == "iv-sweep" and self.params["repeats"] != 0:
+                keithley.IVsweepRep(
+                    self.params["Sample name"],
+                    self.params["startV"],
+                    self.params["stopV"],
+                    self.params["stepV"],
+                    self.params["stepT"],
+                    self.params["repeats"]
+                )
+                # Calculate time to wait for scan to complete
+                vrange = abs(self.params["startV"]) + abs(self.params["stopV"])
+                num_points = vrange / self.params["stepV"]
+                measure_time = (num_points * (self.params["stepT"] + 0.15) * 2) * self.params["repeats"]
+    
+                print(f"Estimated time to finish: {ceil(measure_time / 60)} min(s)")
+                time.sleep(measure_time + 5)                
+
 
             keithley.closeConnection()
             self.finishedSig.emit()
-
+            
         except ConnectionError:
             self.errorSig.emit("No measurement made. Please retry.")
             self.quit()
@@ -153,14 +179,18 @@ class bufferThread(QThread):
     def run(self):
         """Logic to be run in background thread."""
         try:
-            keithley = k2614B_driver.k2614B(
-                address="TCPIP[board]::192.168.0.2::inst0::INSTR"
-            )
-
+            # address = "TCPIP[board]::192.168.0.2::inst0::INSTR"
+            address = "TCPIP[board]::169.254.0.2::inst0::INSTR"
+            keithley = k2614B_driver.k2614B(address)
             df = keithley.readBufferIV()
+            print(df)
+            save_file = "data/" + str(self.params["Sample name"]) + "-iv.csv"
             df.to_csv(
-                "data/" + str(self.params["Sample name"]) + "-iv.csv", index=False
+                save_file, index=False
             )
+            print("----------------------------------------")
+            print(f"Data saved: data/ {save_file}")
+            print("----------------------------------------")
 
             keithley.closeConnection()
             self.finishedSig.emit()

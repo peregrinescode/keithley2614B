@@ -109,44 +109,6 @@ class k2614B:
         df = pd.DataFrame({"Channel Voltage [V]": vd, "Channel Current [A]": c})
         return df
 
-    def DisplayMeasurement(self, sample):
-        """Show graphs of measurements."""
-        try:
-            style.use("ggplot")
-            fig, ([ax1, ax2], [ax3, ax4]) = plt.subplots(
-                2, 2, figsize=(20, 10), dpi=80, facecolor="w", edgecolor="k"
-            )
-
-            df1 = pd.read_csv(str(sample + "-iv-sweep.csv"), "\t")
-            ax1.plot(df1["Channel Voltage [V]"], df1["Channel Current [A]"], ".")
-            ax1.set_title("I-V sweep")
-            ax1.set_xlabel("Channel Voltage [V]")
-            ax1.set_ylabel("Channel Current [A]")
-
-            df2 = pd.read_csv(str(sample + "-output.csv"), "\t")
-            ax2.plot(df2["Channel Voltage [V]"], df2["Channel Current [A]"], ".")
-            ax2.set_title("Output curves")
-            ax2.set_xlabel("Channel Voltage [V]")
-            ax2.set_ylabel("Channel Current [A]")
-
-            df3 = pd.read_csv(str(sample + "-transfer.csv"), "\t")
-            ax3.plot(df3["Gate Voltage [V]"], df3["Channel Current [A]"], ".")
-            ax3.set_title("Transfer Curves")
-            ax3.set_xlabel("Gate Voltage [V]")
-            ax3.set_ylabel("Channel Current [A]")
-
-            df4 = pd.read_csv(str(sample + "-transfer.csv"), "\t")
-            ax4.plot(df4["Gate Voltage [V]"], df4["Gate Leakage [A]"], ".")
-            ax4.set_title("Gate leakage current")
-            ax4.set_xlabel("Gate Voltage [V]")
-            ax4.set_ylabel("Gate Leakage [A]")
-
-            fig.tight_layout()
-            fig.savefig(sample)
-            plt.show()
-
-        except (FileNotFoundError):
-            print("Sample name not found.")
 
     def IVsweep(self, sample, vstart, vstop, vstep, stepTime, repeats):
         """k2614B IV sweep."""
@@ -161,19 +123,16 @@ class k2614B:
         
         -- Clear buffers
         smua.nvbuffer1.clear()
-        smub.nvbuffer1.clear()
         -- Prepare buffers
         smua.nvbuffer1.collectsourcevalues = 1
-        smub.nvbuffer1.collectsourcevalues = 1
         format.data = format.ASCII
         smua.nvbuffer1.appendmode = 1
-        smub.nvbuffer1.appendmode = 1
         smua.measure.count = 1
-        smub.measure.count = 1
         -- Set Paramters
         Vstart = {vstart}
         Vend = {vstop}
         Vstep = {vstep}
+        repeats = {repeats}
         -- Measurement Setup
         -- To adjust the delay factor.
         smua.measure.delayfactor = 1
@@ -193,7 +152,6 @@ class k2614B:
         V = Vstart
         smua.source.output = smua.OUTPUT_ON
         smua.source.levelv = V
-        delay(1)
         
         -- forwards scan direction
         if Vstart < Vend then
@@ -220,9 +178,131 @@ class k2614B:
         else
             error("Invalid sweep parameters.")
         end
+        waitcomplete()
+        """
+
+        # Write this to a file before uploading to Keithley:
+        with open("iv-temp.tsp", "w") as myfile:
+            myfile.write(dedent(tspScript))
+
+        # Now run the script
+        self.loadTSP("iv-temp.tsp")
+        self.runTSP()
+
+        # clean up temp .tsp file
+        remove("iv-temp.tsp")
+        return
+
+
+    def IVsweepRep(self, sample, vstart, vstop, vstep, stepTime, repeats):
+        """k2614B IV sweep with repeats."""
+        # Write a tsp file
+        tspScript = f"""
+        -- TSP PROGRAM FOR PERFORMING IV SWEEP
+        reset()
+        display.clear()
+        
+        -- Beep in excitement
+        -- beeper.beep(1, 600)
+        
+        -- Clear buffers
+        smua.nvbuffer1.clear()
+        -- Prepare buffers
+        smua.nvbuffer1.collectsourcevalues = 1
+        format.data = format.ASCII
+        smua.nvbuffer1.appendmode = 1
+        smua.measure.count = 1
+        -- Set Paramters
+        Vstart = {vstart}
+        Vend = {vstop}
+        Vstep = {vstep}
+        repeats = {repeats}
+        -- Measurement Setup
+        -- To adjust the delay factor.
+        smua.measure.delayfactor = 1
+        smua.measure.nplc = 10
+        -- SMUA setup
+        smua.source.func = smua.OUTPUT_DCVOLTS
+        smua.sense = smua.SENSE_LOCAL
+        smua.source.autorangev = smua.AUTORANGE_ON
+        smua.source.limiti = 1e-5
+        smua.measure.rangei = 1e-5
+        
+        --DISPLAY settings
+        display.smua.measure.func = display.MEASURE_DCAMPS
+        display.screen = display.SMUA
+        
+        -- Measurement RAMP UP TO STARTV
+        V = 0
+        smua.source.output = smua.OUTPUT_ON
+        smua.source.levelv = V
+        -- forwards scan direction
+        if Vstart > 0 then
+            while V < Vstart do
+                    smua.source.levelv = V
+                    smua.source.output = smua.OUTPUT_ON
+                    delay({stepTime})
+                    smua.measure.i(smua.nvbuffer1)
+                    V = V + Vstep
+                    smua.source.output = smua.OUTPUT_OFF
+            end
+        
+        -- reverse scan direction
+        elseif Vstart < 0 then
+            while V > Vstart do
+                    smua.source.levelv = V
+                    smua.source.output = smua.OUTPUT_ON
+                    delay({stepTime})
+                    smua.measure.i(smua.nvbuffer1)
+                    V = V - Vstep
+                    smua.source.output = smua.OUTPUT_OFF
+            end
+        
+        else
+            error("Invalid sweep parameters.")
+        end
+        
+        
+        -- MEASUREMENT SWEEP FROM VSTART TO VEND AND BACK
+        i = 0
+        while i <= repeats do
+            V = Vstart
+            smua.source.output = smua.OUTPUT_ON
+            smua.source.levelv = V
+            
+            -- forwards scan direction
+            if Vstart < Vend then
+                while V < Vend do
+                        smua.source.levelv = V
+                        smua.source.output = smua.OUTPUT_ON
+                        delay({stepTime})
+                        smua.measure.i(smua.nvbuffer1)
+                        V = V + Vstep
+                        smua.source.output = smua.OUTPUT_OFF
+                end
+            
+            -- reverse scan direction
+            elseif Vstart > Vend then
+                while V > Vend do
+                        smua.source.levelv = V
+                        smua.source.output = smua.OUTPUT_ON
+                        delay({stepTime})
+                        smua.measure.i(smua.nvbuffer1)
+                        V = V - Vstep
+                        smua.source.output = smua.OUTPUT_OFF
+                end
+                    
+            else
+                error("Invalid sweep parameters.")
+            end
+           
+           Vstart = -1 * Vstart 
+           Vend = -1 * Vend
+           i = i + 1
+           
+        end
         
         waitcomplete()
-        -------- END --------
         """
 
         # Write this to a file before uploading to Keithley:
@@ -243,10 +323,8 @@ class k2614B:
 
 if __name__ == "__main__":
     """For testing methods in the k2614B class."""
-    keithley = k2614B(address="TCPIP[board]::192.168.0.2::inst0::INSTR")
-    sample = "blank-20-1"
-    keithley.IVsweep(sample, -10, 10, 2, 0.1)
-    # time.sleep(20)
-    # df = keithley.readBufferIV()
-    # print(df)
+    keithley = k2614B(address="TCPIP[board]::169.254.0.2::inst0::INSTR")
+    keithley.IVsweepRep("driverTest", 1, -1, 0.2, 0.01, 2)
+    df = keithley.readBufferIV()
+    print(df)
     keithley.closeConnection()
