@@ -28,14 +28,16 @@ from PyQt5.QtWidgets import (
     QLineEdit,
 )
 
-import matplotlib
+import matplotlib.pyplot as plt
+from matplotlib import ticker
+from matplotlib.ticker import FormatStrFormatter
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as mplToolb
-import matplotlib.style as style
+import seaborn as sns
 from matplotlib.figure import Figure
 import k2614B_driver  # Driver for keithley 2636
 
-matplotlib.use("Qt5Agg")
+#matplotlib.use("Qt5Agg")
 
 
 class mainWindow(QMainWindow):
@@ -84,12 +86,12 @@ class mainWindow(QMainWindow):
 
         # Clear data
         clearAction = QAction("Clear", self)
-        clearAction.setShortcut("Ctrl+C")
+        clearAction.setShortcut("Ctrl+K")
         clearAction.setStatusTip("Clear data on graph")
         clearAction.triggered.connect(self.mainWidget.clear)
         # Keithley settings popup
         keithleyAction = QAction("Settings", self)
-        keithleyAction.setShortcut("Ctrl+K")
+        keithleyAction.setShortcut("Ctrl+S")
         keithleyAction.setStatusTip("Adjust scan parameters")
         keithleyConAction = QAction("Connect", self)
         keithleyConAction.setShortcut("Ctrl+J")
@@ -133,8 +135,8 @@ class mainWindow(QMainWindow):
     def testKeithleyConnection(self):
         """Connect to the keithley on initialisation."""
         try:
-            # address = "TCPIP[board]::192.168.0.2::inst0::INSTR"
-            address = "TCPIP[board]::169.254.0.2::inst0::INSTR"
+            address = "TCPIP[board]::192.168.0.2::inst0::INSTR"
+            # address = "TCPIP[board]::169.254.0.2::inst0::INSTR"
             self.keithley = k2614B_driver.k2614B(address)
             self.statusbar.showMessage("Keithley found.")
             self.buttonWidget.showButtons()
@@ -162,6 +164,8 @@ class mainWindow(QMainWindow):
                 df = pd.read_csv(fname[0], ",")
                 if fnmatch.fnmatch(fname[0], "*iv.csv"):
                     self.mainWidget.drawIV(df, fname[0].split("/")[-1].split(".")[0])
+                elif fnmatch.fnmatch(fname[0], "*squareV.csv"):
+                    self.mainWidget.drawSquareV(df, fname[0].split("/")[-1].split(".")[0])
                 else:
                     raise FileNotFoundError
             except KeyError or FileNotFoundError:
@@ -206,8 +210,8 @@ class keithleyButtonWidget(QWidget):
         grid.addWidget(ivFirstV, 2, 2)
         ivFirstV.setMinimum(-200)
         ivFirstV.setMaximum(200)
-        ivFirstV.setValue(-5)
-        self.startV = -5
+        ivFirstV.setValue(0)
+        self.startV = 0
         ivFirstV.valueChanged.connect(self.updateStartV)
 
         # Stop voltage
@@ -215,24 +219,25 @@ class keithleyButtonWidget(QWidget):
         grid.addWidget(ivLastV, 2, 3)
         ivLastV.setMinimum(-200)
         ivLastV.setMaximum(200)
-        ivLastV.setValue(5)
-        self.stopV = 5
+        ivLastV.setValue(150)
+        self.stopV = 150
         ivLastV.valueChanged.connect(self.updateStopV)
 
         # Voltage step
         ivStepV = QDoubleSpinBox(self)
         grid.addWidget(ivStepV, 2, 4)
-        ivStepV.setSingleStep(0.1)
-        ivStepV.setValue(0.1)
-        self.stepV = 0.1
+        ivStepV.setSingleStep(1)
+        ivStepV.setValue(1)
+        self.stepV = 1
+        ivStepV.setMaximum(1000)
         ivStepV.valueChanged.connect(self.updateStepV)
 
         # Step time
         ivStepT = QDoubleSpinBox(self)
         grid.addWidget(ivStepT, 2, 5)
-        ivStepT.setSingleStep(0.1)
-        ivStepT.setValue(0.2)
-        self.stepT = 0.2
+        ivStepT.setSingleStep(0.5)
+        ivStepT.setValue(0.5)
+        self.stepT = 0.5
         ivStepT.valueChanged.connect(self.updateStepT)
 
         # Reverse scan + Number of repeats
@@ -310,38 +315,70 @@ class mplWidget(FigureCanvas):
         """Create plotting widget."""
         self.initWidget()
 
-    def initWidget(self, parent=None, width=5, height=4, dpi=100):
+    def initWidget(self, parent=None, width=8, height=(8 / (1.618)), dpi=300):
         """Set parameters of plotting widget."""
-        style.use("seaborn-white")
+
+        sns.set_style('white')
+
+        # Options
+        params = {'text.usetex': True,
+                  'font.size': 9,
+                  'font.family': 'DejaVu Sans',
+                  }
+        plt.rcParams.update(params)
+        
+        markerSize = 3        
 
         self.fig = Figure(figsize=(width, height), dpi=dpi)
-        self.ax1 = self.fig.add_subplot(111)
+        self.ax1 = self.fig.gca()
 
-        self.ax1.set_xlabel("Voltage (V)", fontsize=12)
-        self.ax1.set_ylabel("Current (A)", fontsize=12)
-
+        self.ax1.set_xlabel("Voltage (V)")
+        self.ax1.set_ylabel("Current (A)")
+        
+        #formatter = ticker.ScalarFormatter(useMathText=True)
+        #formatter.set_scientific(True)
+        #self.ax1.yaxis.set_major_formatter(formatter)
+        #self.ax1.xaxis.major.formatter._useMathText = True
+        
+        #self.ax1.yaxis.set_major_formatter(FormatStrFormatter('%.2f'))
+        
         FigureCanvas.__init__(self, self.fig)
         self.setParent(parent)
         FigureCanvas.setSizePolicy(self, QSizePolicy.Expanding, QSizePolicy.Expanding)
         FigureCanvas.updateGeometry(self)
+        self.fig.subplots_adjust(left=0.18, right=0.95, bottom=0.22, top=0.90)
+
 
     def drawIV(self, df, sname):
         """Take a data frame and draw it."""
         self.ax1 = self.fig.add_subplot(111)
         self.ax1.plot(
-            df["Channel Voltage [V]"], df["Channel Current [A]"], "o-", label=sname
+            df["Channel Voltage [V]"], df["Channel Current [A]"], ".", label=sname
         )
-        self.ax1.set_title("IV Sweep", fontsize=12)
-        self.ax1.set_xlabel("Voltage (V)", fontsize=12)
-        self.ax1.set_ylabel("Current (A)", fontsize=12)
-        self.ax1.legend(loc="best")
+        #self.ax1.set_title("IV Sweep")
+        self.ax1.set_xlabel("Voltage (V)")
+        self.ax1.set_ylabel("Current (A)")
+        self.ax1.legend(loc="best", fontsize=8)
+        FigureCanvas.draw(self)
+
+    def drawSquareV(self, df, sname):
+        """Take a data frame and draw it."""
+        self.ax1 = self.fig.add_subplot(111)
+        self.ax1.plot(
+            df.index, df["Channel Current [A]"] / 1e-6, "-", label=sname
+        )
+        #self.ax1.set_title("IV Sweep")
+        self.ax1.set_xlabel("Time (s)")
+        self.ax1.set_ylabel("Current ($\mu$A)")
+        #self.ax1.legend(loc="lower right", fontsize=8)
+        #self.ax1.set_ylim(-1 * abs(df["Channel Current [A]"]).max(), abs(df["Channel Current [A]"]).max())
         FigureCanvas.draw(self)
 
     def clear(self):
         """Clear the plot."""
         self.ax1.clear()
-        self.ax1.set_xlabel("Voltage (V)", fontsize=12)
-        self.ax1.set_ylabel("Current (A)", fontsize=12)
+        self.ax1.set_xlabel("Voltage (V)")
+        self.ax1.set_ylabel("Current (A)")
         FigureCanvas.draw(self)
 
 
@@ -384,8 +421,8 @@ class keithleyConnectionWindow(QWidget):
     def reconnect2keithley(self):
         """Reconnect to instrument."""
         try:
-             # address = "TCPIP[board]::192.168.0.2::inst0::INSTR"
-            address = "TCPIP[board]::169.254.0.2::inst0::INSTR"
+            address = "TCPIP[board]::192.168.0.2::inst0::INSTR"
+            # address = "TCPIP[board]::169.254.0.2::inst0::INSTR"
             self.keithley = k2614B_driver.k2614B(address)
             self.connStatus.append("Connection successful")
             self.connectionSig.emit()

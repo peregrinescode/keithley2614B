@@ -11,6 +11,7 @@ import program_GUI  # GUI
 import k2614B_driver  # driver
 import sys
 import time
+import numpy as np
 import pandas as pd
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import QApplication
@@ -114,46 +115,31 @@ class measureThread(QThread):
     def run(self):
         """Logic to be run in background thread."""
         try:
-            # address = "TCPIP[board]::192.168.0.2::inst0::INSTR"
-            address = "TCPIP[board]::169.254.0.2::inst0::INSTR"
+            address = "TCPIP[board]::192.168.0.2::inst0::INSTR"
+            # address = "TCPIP[board]::169.254.0.2::inst0::INSTR"
             keithley = k2614B_driver.k2614B(address)
 
-            if self.params["Measurement"] == "iv-sweep" and self.params["repeats"] == 0 :
-                keithley.IVsweep(
-                    self.params["Sample name"],
-                    self.params["startV"],
-                    self.params["stopV"],
-                    self.params["stepV"],
-                    self.params["stepT"],
-                    self.params["repeats"]
-                )
-                # Calculate time to wait for scan to complete
-                vrange = abs(self.params["startV"]) + abs(self.params["stopV"])
-                num_points = vrange / self.params["stepV"]
-                measure_time = num_points * (self.params["stepT"] + 0.1) * 2
-    
-                print(f"Estimated time to finish: {ceil(measure_time / 60)} min(s)")
-                time.sleep(measure_time + 5)                
+            vstart = self.params["startV"]
+            vstop = self.params["stopV"]
+            vstep = self.params["stepV"]
+            numpoint = ((vstop - vstart) / vstep) + 1
+        
+            myvlist = np.linspace(vstart, vstop, num=numpoint)
+            myvlist = np.append(myvlist, np.linspace(vstop - 1, vstart, num=numpoint - 1))
+            #print(list(myvlist))
+            stime = self.params["stepT"]
+            points = len(myvlist)
+        
+            # Format for keithley to read
+            myvlist = str(list(myvlist)).replace('[', '{').replace(']', '}')
 
-            if self.params["Measurement"] == "iv-sweep" and self.params["repeats"] != 0:
-                keithley.IVsweepRep(
-                    self.params["Sample name"],
-                    self.params["startV"],
-                    self.params["stopV"],
-                    self.params["stepV"],
-                    self.params["stepT"],
-                    self.params["repeats"]
-                )
-                # Calculate time to wait for scan to complete
-                vrange = abs(self.params["startV"]) + abs(self.params["stopV"])
-                num_points = vrange / self.params["stepV"]
-                measure_time = (num_points * (self.params["stepT"] + 0.15) * 2) * self.params["repeats"]
-    
-                print(f"Estimated time to finish: {ceil(measure_time / 60)} min(s)")
-                time.sleep(measure_time + 5)                
+            # Perform the sweep
+            keithley.SweepVListMeasureI(myvlist, stime, points)            
 
-
+            # Close Keithley connection
             keithley.closeConnection()
+            
+            # Emit a finish signal, does this even do anything atm?
             self.finishedSig.emit()
             
         except ConnectionError:
@@ -179,10 +165,10 @@ class bufferThread(QThread):
     def run(self):
         """Logic to be run in background thread."""
         try:
-            # address = "TCPIP[board]::192.168.0.2::inst0::INSTR"
-            address = "TCPIP[board]::169.254.0.2::inst0::INSTR"
+            address = "TCPIP[board]::192.168.0.2::inst0::INSTR"
+            # address = "TCPIP[board]::169.254.0.2::inst0::INSTR"
             keithley = k2614B_driver.k2614B(address)
-            df = keithley.readBufferIV()
+            df = keithley.readBuffer()
             print(df)
             save_file = "data/" + str(self.params["Sample name"]) + "-iv.csv"
             df.to_csv(
