@@ -42,7 +42,7 @@ class GUI(program_GUI.mainWindow):
             self.params["stopV"] = self.buttonWidget.stopV
             self.params["stepV"] = self.buttonWidget.stepV
             self.params["stepT"] = self.buttonWidget.stepT
-            self.params["repeats"] = self.buttonWidget.ivRepeats
+            self.params["compl"] = self.buttonWidget.setCompliance
             self.statusbar.showMessage("Performing IV Sweep...")
             self.buttonWidget.hideButtons()
             self.params["Measurement"] = "iv-sweep"
@@ -50,7 +50,7 @@ class GUI(program_GUI.mainWindow):
             self.measureThread.finishedSig.connect(self.done)
             self.measureThread.start()
         except AttributeError or KeyError:
-            self.popupWarning.showWindow("No sample name given!")
+            self.popupWarning.showWindow("Sample name/parameter error!")
 
     def readBuffer(self):
         """Read from the buffer."""
@@ -122,6 +122,8 @@ class measureThread(QThread):
             vstart = self.params["startV"]
             vstop = self.params["stopV"]
             vstep = self.params["stepV"]
+            compl = self.params["compl"]
+            print(compl)
             numpoint = ((vstop - vstart) / vstep) + 1
         
             myvlist = np.linspace(vstart, vstop, num=numpoint)
@@ -134,7 +136,7 @@ class measureThread(QThread):
             myvlist = str(list(myvlist)).replace('[', '{').replace(']', '}')
 
             # Perform the sweep
-            keithley.SweepVListMeasureI(myvlist, stime, points)            
+            keithley.SweepVListMeasureI(myvlist, stime, points, compl)
 
             # Close Keithley connection
             keithley.closeConnection()
