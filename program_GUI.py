@@ -379,7 +379,7 @@ class conductivityWidget(QWidget):
 
     def fitConductivity(self):
         """What to do when find sigma button is clicked!."""
-        
+
         dat1 = self.latestData
         sample = self.sample
         l = self.channelL * 1e-6
@@ -452,7 +452,7 @@ class mplWidget(FigureCanvas):
         #self.ax1.yaxis.set_major_formatter(formatter)
         #self.ax1.xaxis.major.formatter._useMathText = True
         
-        self.ax1.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
+        #self.ax1.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
         
         FigureCanvas.__init__(self, self.fig)
         self.setParent(parent)
