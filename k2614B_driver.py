@@ -249,26 +249,27 @@ if __name__ == "__main__":
     #keithley.IVsweep2("driverTest", 0, 60, 120, 0.55555)
     # keithley.squareVoltage("test", 150, -150, 30, 4)
 
-    vstart = 0
-    vstop = 150
-    vstep = 1
+    vstart = -2
+    vstop = 2
+    vstep = 0.05
     numpoint = ((vstop - vstart) / vstep) + 1
 
     myvlist = np.linspace(vstart, vstop, num=numpoint)
-    myvlist = np.append(myvlist, np.linspace(vstop - 1, vstart, num=numpoint - 1))
+    #myvlist = np.append(myvlist, np.linspace(vstop - 1, vstart, num=numpoint - 1))
     #print(list(myvlist))
-    stime = 0.5
+    stime = 0.02
     points = len(myvlist)
 
     # Format for keithley to read
     myvlist = str(list(myvlist)).replace('[', '{').replace(']', '}')
     print(myvlist)
     
-    keithley.SweepVListMeasureI(myvlist, stime, points)
+    keithley.SweepVListMeasureI(myvlist, stime, points, compl=-2)
 
     df = keithley.readBuffer()
     print(df)
-    save_file = "data/P3HT-test-iv.csv"
+    save_file = "data/Diode-P3HT-Motdf-az3-20-1-dev1-2-scan2-iv.csv"
+    #save_file = "data/ofet-iv.csv"
     df.to_csv(
         save_file, index=False
     )

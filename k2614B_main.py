@@ -29,22 +29,22 @@ class GUI(program_GUI.mainWindow):
 
     def setupConnections(self):
         """Connect the GUI to the measurement thread."""
-        self.buttonWidget.ivBtn.clicked.connect(self.ivSweep)
-        self.buttonWidget.readBuffer.clicked.connect(self.readBuffer)
+        self.ivScanWidget.ivBtn.clicked.connect(self.ivSweep)
+        self.ivScanWidget.readBuffer.clicked.connect(self.readBuffer)
 
     def ivSweep(self):
         """Perform IV sweep."""
         try:
-            if self.buttonWidget.SampleName is None:
+            if self.ivScanWidget.SampleName is None:
                 raise AttributeError
-            self.params["Sample name"] = self.buttonWidget.SampleName
-            self.params["startV"] = self.buttonWidget.startV
-            self.params["stopV"] = self.buttonWidget.stopV
-            self.params["stepV"] = self.buttonWidget.stepV
-            self.params["stepT"] = self.buttonWidget.stepT
-            self.params["compl"] = self.buttonWidget.setCompliance
+            self.params["Sample name"] = self.ivScanWidget.SampleName
+            self.params["startV"] = self.ivScanWidget.startV
+            self.params["stopV"] = self.ivScanWidget.stopV
+            self.params["stepV"] = self.ivScanWidget.stepV
+            self.params["stepT"] = self.ivScanWidget.stepT
+            self.params["compl"] = self.ivScanWidget.setCompliance
             self.statusbar.showMessage("Performing IV Sweep...")
-            self.buttonWidget.hideButtons()
+            self.ivScanWidget.hideButtons()
             self.params["Measurement"] = "iv-sweep"
             self.measureThread = measureThread(self.params)
             self.measureThread.finishedSig.connect(self.done)
@@ -63,7 +63,7 @@ class GUI(program_GUI.mainWindow):
         """Update display when finished measurement."""
         self.statusbar.showMessage("Task complete.")
         # self.dislpayMeasurement()
-        self.buttonWidget.showButtons()
+        self.ivScanWidget.showButtons()
 
     def bufferDone(self):
         """Update display when finished buffer reading."""
@@ -75,7 +75,7 @@ class GUI(program_GUI.mainWindow):
         """Raise error warning."""
         self.popupWarning.showWindow(str(message))
         self.statusbar.showMessage("Measurement error!")
-        self.buttonWidget.hideButtons()
+        self.ivScanWidget.hideButtons()
 
     def dislpayMeasurement(self):
         """Display the data on screen."""
@@ -123,12 +123,14 @@ class measureThread(QThread):
             vstop = self.params["stopV"]
             vstep = self.params["stepV"]
             compl = self.params["compl"]
-            print(compl)
             numpoint = ((vstop - vstart) / vstep) + 1
-        
+
+            # Sweep in one direction
             myvlist = np.linspace(vstart, vstop, num=numpoint)
+
+            # Sweep in other direction
             myvlist = np.append(myvlist, np.linspace(vstop - 1, vstart, num=numpoint - 1))
-            #print(list(myvlist))
+            
             stime = self.params["stepT"]
             points = len(myvlist)
         
