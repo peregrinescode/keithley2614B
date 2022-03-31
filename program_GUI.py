@@ -28,6 +28,7 @@ from PyQt5.QtWidgets import (
     QFileDialog,
     QInputDialog,
     QLineEdit,
+    QProgressBar,
 )
 
 import matplotlib.pyplot as plt
@@ -68,13 +69,13 @@ class mainWindow(QMainWindow):
         # Matplotlib control widget
         self.dockWidget2 = QDockWidget("Plotting controls")
         self.dockWidget2.setWidget(mplToolb(self.mainWidget, self))
-        self.addDockWidget(Qt.TopDockWidgetArea, self.dockWidget2)
+        self.addDockWidget(Qt.BottomDockWidgetArea, self.dockWidget2)
         # IV scan widget
         self.ivScanWidget=ivScanWidget()
         self.dockWidget1=QDockWidget("IV scan")
         self.dockWidget1.setWidget(self.ivScanWidget)
-        #self.addDockWidget(Qt.TopDockWidgetArea, self.dockWidget2)
-        self.tabifyDockWidget(self.dockWidget2, self.dockWidget1)
+        self.addDockWidget(Qt.TopDockWidgetArea, self.dockWidget1)
+        # self.tabifyDockWidget(self.dockWidget2, self.dockWidget1)
         # Conductivity widget
         self.conductivityWidget=conductivityWidget()
         self.dockWidget3=QDockWidget("Conductivity fit")
@@ -202,7 +203,7 @@ class ivScanWidget(QWidget):
         # Columns
         col1 = QLabel("Start Voltage (V)")
         col2 = QLabel("Stop Voltage (V)")
-        col3 = QLabel("Voltage Step (V)")
+        col3 = QLabel("# of steps")
         col4 = QLabel("Step Time (s)")
         col5 = QLabel("Compliance 1e-{?} (A)")
         grid.addWidget(col1, 1, 2)
@@ -216,8 +217,8 @@ class ivScanWidget(QWidget):
         grid.addWidget(ivFirstV, 2, 2)
         ivFirstV.setMinimum(-200)
         ivFirstV.setMaximum(200)
-        ivFirstV.setValue(0)
-        self.startV = 0
+        ivFirstV.setValue(-10)
+        self.startV = -10
         ivFirstV.valueChanged.connect(self.updateStartV)
 
         # Stop voltage
@@ -225,25 +226,25 @@ class ivScanWidget(QWidget):
         grid.addWidget(ivLastV, 2, 3)
         ivLastV.setMinimum(-200)
         ivLastV.setMaximum(200)
-        ivLastV.setValue(150)
-        self.stopV = 150
+        ivLastV.setValue(10)
+        self.stopV = 10
         ivLastV.valueChanged.connect(self.updateStopV)
 
-        # Voltage step
-        ivStepV = QDoubleSpinBox(self)
+        # Number of steps
+        ivStepV = QSpinBox(self)
         grid.addWidget(ivStepV, 2, 4)
         ivStepV.setSingleStep(1)
-        ivStepV.setValue(1)
-        self.stepV = 1
-        ivStepV.setMaximum(1000)
+        ivStepV.setValue(100)
+        self.stepV = 100
+        ivStepV.setMaximum(10000)
         ivStepV.valueChanged.connect(self.updateStepV)
 
         # Step time
         ivStepT = QDoubleSpinBox(self)
         grid.addWidget(ivStepT, 2, 5)
         ivStepT.setSingleStep(0.5)
-        ivStepT.setValue(0.5)
-        self.stepT = 0.5
+        ivStepT.setValue(0.1)
+        self.stepT = 0.1
         ivStepT.valueChanged.connect(self.updateStepT)
 
         # Set Compliance
@@ -257,13 +258,26 @@ class ivScanWidget(QWidget):
 
 
         # Push button setup
-        self.ivBtn = QPushButton("Perform IV sweep")
+        self.ivBtn = QPushButton("1. Perform IV sweep")
         grid.addWidget(self.ivBtn, 2, 7)
         self.ivBtn.clicked.connect(self.showSampleNameInput)
 
         # Read from buffer
-        self.readBuffer = QPushButton("Read buffer")
+        self.readBuffer = QPushButton("2. Save buffer")
         grid.addWidget(self.readBuffer, 2, 8)
+        self.readBuffer.setEnabled(False)
+
+        # Read from buffer
+        self.plotBtn = QPushButton("3. PLOT")
+        grid.addWidget(self.plotBtn, 2, 9)
+        self.plotBtn.setEnabled(False)
+
+        # Progress Bar
+        self.pbar = QProgressBar(self)
+        self.pbar.setValue(0)
+        self.resize(300, 100)
+        grid.addWidget(self.pbar, 3, 2, 1, 8)
+
 
     def showSampleNameInput(self):
         """Popup for sample name input."""
@@ -293,6 +307,7 @@ class ivScanWidget(QWidget):
     def showButtons(self):
         """Show control buttons."""
         self.ivBtn.setEnabled(True)
+        self.readBuffer.setEnabled(True)
 
     def updateStartV(self, startV):
         """Set/update start voltage."""
@@ -374,7 +389,7 @@ class conductivityWidget(QWidget):
         # Results box
         self.conResults = QPlainTextEdit()
         grid.addWidget(self.conResults, 3, 2, 1, 6)
-        self.conResults.setFixedHeight(80)
+        self.conResults.setFixedHeight(40)
 
 
     def fitConductivity(self):
@@ -446,6 +461,8 @@ class mplWidget(FigureCanvas):
 
         self.ax1.set_xlabel("Voltage (V)")
         self.ax1.set_ylabel("Current (A)")
+
+        sns.despine(self.fig)
         
         #formatter = ticker.ScalarFormatter(useMathText=True)
         #formatter.set_scientific(True)
@@ -463,13 +480,15 @@ class mplWidget(FigureCanvas):
 
     def drawIV(self, df, sname):
         """Take a data frame and draw it."""
-        self.ax1 = self.fig.add_subplot(111)
+        self.ax1.clear()
+        # self.ax1 = self.fig.add_subplot(111)
 
         self.ax1.plot(df["Channel Voltage [V]"], df["Channel Current [A]"], ".", label=sname)
 
         self.ax1.set_xlabel("Voltage (V)")
-        self.ax1.set_xlabel("Current (A)")
-        self.ax1.legend(loc="best", fontsize=8)
+        self.ax1.set_ylabel("Current (A)")
+        self.ax1.legend(loc="best", fontsize=8, frameon=False)
+        sns.despine(self.fig)
         #self.ax1.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
         FigureCanvas.draw(self)
 

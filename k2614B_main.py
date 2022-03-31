@@ -15,7 +15,6 @@ import numpy as np
 import pandas as pd
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import QApplication
-from math import ceil
 
 
 class GUI(program_GUI.mainWindow):
@@ -31,33 +30,44 @@ class GUI(program_GUI.mainWindow):
         """Connect the GUI to the measurement thread."""
         self.ivScanWidget.ivBtn.clicked.connect(self.ivSweep)
         self.ivScanWidget.readBuffer.clicked.connect(self.readBuffer)
+        self.ivScanWidget.plotBtn.clicked.connect(self.dislpayMeasurement)
 
     def ivSweep(self):
         """Perform IV sweep."""
-        try:
-            if self.ivScanWidget.SampleName is None:
-                raise AttributeError
-            self.params["Sample name"] = self.ivScanWidget.SampleName
-            self.params["startV"] = self.ivScanWidget.startV
-            self.params["stopV"] = self.ivScanWidget.stopV
-            self.params["stepV"] = self.ivScanWidget.stepV
-            self.params["stepT"] = self.ivScanWidget.stepT
-            self.params["compl"] = self.ivScanWidget.setCompliance
-            self.statusbar.showMessage("Performing IV Sweep...")
-            self.ivScanWidget.hideButtons()
-            self.params["Measurement"] = "iv-sweep"
-            self.measureThread = measureThread(self.params)
-            self.measureThread.finishedSig.connect(self.done)
-            self.measureThread.start()
-        except AttributeError or KeyError:
-            self.popupWarning.showWindow("Sample name/parameter error!")
+        # try:
+        if self.ivScanWidget.SampleName is None:
+            raise AttributeError
+        self.params["Sample name"] = self.ivScanWidget.SampleName
+        self.params["startV"] = self.ivScanWidget.startV
+        self.params["stopV"] = self.ivScanWidget.stopV
+        self.params["stepV"] = self.ivScanWidget.stepV
+        self.params["stepT"] = self.ivScanWidget.stepT
+        self.params["compl"] = self.ivScanWidget.setCompliance
+        self.statusbar.showMessage("Performing IV Sweep...")
+        self.ivScanWidget.hideButtons()
+        self.params["Measurement"] = "iv-sweep"
+        self.measureThread = measureThread(self.params)
+        self.measureThread.progressSig.connect(self.update_progress_bar)
+        self.measureThread.start()
+
+        # except AttributeError or KeyError:
+        #     self.popupWarning.showWindow("Sample name/parameter error!")
 
     def readBuffer(self):
         """Read from the buffer."""
         self.statusbar.showMessage("Attempting to read buffer...")
         self.bufferThread = bufferThread(self.params)
-        self.bufferThread.finishedSig.connect(self.bufferDone)
+        self.bufferThread.bufferSig.connect(self.bufferDone)
         self.bufferThread.start()
+        self.ivScanWidget.plotBtn.setEnabled(True)
+
+    def update_progress_bar(self, percent):
+        """Update display when finished measurement."""
+        self.ivScanWidget.pbar.setValue(int(percent))
+        if self.ivScanWidget.pbar.value() == 99:
+            time.sleep(1)
+            self.ivScanWidget.pbar.setValue(100)
+            self.done()
 
     def done(self):
         """Update display when finished measurement."""
@@ -65,11 +75,11 @@ class GUI(program_GUI.mainWindow):
         # self.dislpayMeasurement()
         self.ivScanWidget.showButtons()
 
-    def bufferDone(self):
+    def bufferDone(self, save_file):
         """Update display when finished buffer reading."""
-        saveFile = "data/" + str(self.params["Sample name"]) + "-iv.csv"
-        self.statusbar.showMessage(f"Buffer saved as {saveFile}")
-        # self.dislpayMeasurement()
+        self.save_file = save_file
+        self.statusbar.showMessage(f"Buffer saved as {save_file}")
+        # self.dislpayMeasurement(save_file)
 
     def error(self, message):
         """Raise error warning."""
@@ -80,18 +90,10 @@ class GUI(program_GUI.mainWindow):
     def dislpayMeasurement(self):
         """Display the data on screen."""
         try:
-            # IV sweep display
-            if self.params["Measurement"] == "iv-sweep":
-                df = pd.read_csv(
-                    str(
-                        self.params["Sample name"]
-                        + "-"
-                        + self.params["Measurement"]
-                        + ".csv"
-                    ),
-                    "\t",
-                )
-                self.mainWidget.drawIV(df)
+            df = pd.read_csv(self.save_file)
+            self.mainWidget.drawIV(df, sname="_noLabel")
+            self.statusbar.showMessage(f"Plotted: {self.save_file}")
+
 
         except FileNotFoundError:
             self.popupWarning.showWindow("Could not find data!")
@@ -100,6 +102,7 @@ class GUI(program_GUI.mainWindow):
 class measureThread(QThread):
     """Thread for running measurements."""
 
+    progressSig = pyqtSignal(float)
     finishedSig = pyqtSignal()
     errorSig = pyqtSignal(str)
 
@@ -115,15 +118,15 @@ class measureThread(QThread):
     def run(self):
         """Logic to be run in background thread."""
         try:
-            address = "TCPIP[board]::192.168.0.2::inst0::INSTR"
-            # address = "TCPIP[board]::169.254.0.2::inst0::INSTR"
+            address = "TCPIP[board]::192.168.0.2::inst0::INSTR" #k2614B
+            # address = "TCPIP[board]::192.100.10.2::inst0::INSTR" #k2635A
             keithley = k2614B_driver.k2614B(address)
 
             vstart = self.params["startV"]
             vstop = self.params["stopV"]
-            vstep = self.params["stepV"]
+            numpoint = self.params["stepV"]
             compl = self.params["compl"]
-            numpoint = ((vstop - vstart) / vstep) + 1
+            # numpoint = ((vstop - vstart) / vstep) + 1
 
             # Sweep in one direction
             myvlist = np.linspace(vstart, vstop, num=numpoint)
@@ -132,29 +135,38 @@ class measureThread(QThread):
             myvlist = np.append(myvlist, np.linspace(vstop - 1, vstart, num=numpoint - 1))
             
             stime = self.params["stepT"]
-            points = len(myvlist)
-        
+                    
             # Format for keithley to read
             myvlist = str(list(myvlist)).replace('[', '{').replace(']', '}')
 
             # Perform the sweep
-            keithley.SweepVListMeasureI(myvlist, stime, points, compl)
+            keithley.SweepVListMeasureI(myvlist, stime, numpoint, compl)
 
             # Close Keithley connection
             keithley.closeConnection()
             
             # Emit a finish signal, does this even do anything atm?
+            for i in range(numpoint):
+                time.sleep(stime*1.15)
+                percent = (i / numpoint) * 100
+                self.progressSig.emit(percent)
+
             self.finishedSig.emit()
             
         except ConnectionError:
             self.errorSig.emit("No measurement made. Please retry.")
             self.quit()
 
+        except TypeError:
+            self.errorSig.emit("No measurement made. Please retry.")
+            self.quit()
+
+
 
 class bufferThread(QThread):
     """Thread for running measurements."""
 
-    finishedSig = pyqtSignal()
+    bufferSig = pyqtSignal(str)
     errorSig = pyqtSignal(str)
 
     def __init__(self, params):
@@ -183,7 +195,7 @@ class bufferThread(QThread):
             print("----------------------------------------")
 
             keithley.closeConnection()
-            self.finishedSig.emit()
+            self.bufferSig.emit(save_file)
 
         except ConnectionError:
             self.errorSig.emit("No measurement made. Please retry.")

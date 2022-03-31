@@ -5,6 +5,7 @@ Author:  Ross <peregrine dot warren at physics dot ox dot ac dot uk>
 """
 
 import numpy as np
+import time
 import pyvisa as visa
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -243,18 +244,18 @@ class k2614B:
 
 if __name__ == "__main__":
     """For testing methods in the k2614B class."""
-    #keithley = k2614B(address="TCPIP[board]::169.254.0.2::inst0::INSTR")
-    keithley = k2614B(address="TCPIP[board]::192.168.0.2::inst0::INSTR")
+    # keithley = k2614B(address="TCPIP[board]::192.168.0.2::inst0::INSTR")
+    keithley = k2614B(address="TCPIP[board]::192.100.10.2::inst0::INSTR")
     #keithley.IVsweep("driverTest", 60, -60, 1, 0.2, 1)
     #keithley.IVsweep2("driverTest", 0, 60, 120, 0.55555)
     # keithley.squareVoltage("test", 150, -150, 30, 4)
 
     vstart = -2
     vstop = 2
-    vstep = 0.05
-    numpoint = ((vstop - vstart) / vstep) + 1
+    # vstep = 0.05
+    numpoint = 100
 
-    myvlist = np.linspace(vstart, vstop, num=numpoint)
+    myvlist = np.linspace(int(vstart), int(vstop), num=int(numpoint))
     #myvlist = np.append(myvlist, np.linspace(vstop - 1, vstart, num=numpoint - 1))
     #print(list(myvlist))
     stime = 0.02
@@ -266,10 +267,12 @@ if __name__ == "__main__":
     
     keithley.SweepVListMeasureI(myvlist, stime, points, compl=-2)
 
+    time.sleep((numpoint * stime) + 1)
+
     df = keithley.readBuffer()
     print(df)
-    save_file = "data/Diode-P3HT-Motdf-az3-20-1-dev1-2-scan2-iv.csv"
-    #save_file = "data/ofet-iv.csv"
+    save_file = "data/test-driver.csv"
+
     df.to_csv(
         save_file, index=False
     )
